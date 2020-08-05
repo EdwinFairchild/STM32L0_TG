@@ -5,6 +5,8 @@
 #include <stm32l0xx_ll_usart.h>
 #include <stm32l0xx_ll_adc.h>
 #include <stm32l0xx_ll_dma.h>
+
+#include <math.h>
 //---------------| CL |------------------------
 #include  "CL_CONFIG.h"
 #include "CL_printMsg.h"
@@ -18,7 +20,7 @@
 #include "testimg2.h"
 
 //---------------| GLOBALS |-------------------
-uint32_t posVal[2] ,xVal_pre, yVal_pre = 0;
+uint16_t posVal[2] ,xVal_pre, yVal_pre = 0;
 //---------------| Prototypes |----------------
 void init_CL(void);
 void initLed(void);
@@ -85,8 +87,8 @@ void crayLoop(void)
 void MX_ADC_Init(void);
 long map(long x, long in_min, long in_max, long out_min, long out_max);
 void MX_DMA_Init(void);
-
-
+void ADC_DMA_ini(void);
+void drawAnimation(uint16_t x, uint16_t y);
 int main(void)
 {
 	init_CL();
@@ -97,37 +99,34 @@ int main(void)
 	ST7735_SetRotation(3);
 	ST7735_FillScreen(ST7735_BLACK);
 	//ST7735_printMsg(10, 10, "hello World %d" , 56);
-	uint8_t  xv, yv = 0;
+	uint16_t  xV, yV , xPre , yPre = 0;
 	//---------------------| ADC
-	//ADc calibrate
-	MX_ADC_Init();
 
+	ADC_DMA_ini();
 	LL_ADC_REG_StartConversion(ADC1);
-	delayMS(15);
-	ST7735_printMsg(10, 10, "%d", LL_ADC_REG_ReadConversionData12(ADC1));
-	//rand() % (max_number + 1 - minimum_number) + minimum_number
-	uint8_t num , numPrev = 0;
+	
+	uint16_t  num , numPrev = 0;
 	for (;;)
 	{
 		//ST7735_FillScreen(ST7735_BLACK);
-		LL_ADC_REG_StartConversion(ADC1);
-		if (LL_ADC_IsActiveFlag_EOC(ADC1))
-		{
-			num = map(LL_ADC_REG_ReadConversionData12(ADC1), 0, 4095, 7, 153);
-			LL_ADC_ClearFlag_EOC(ADC1);
-			LL_ADC_ClearFlag_EOS(ADC1);
-		}
+		// LL_ADC_REG_StartConversion(ADC1);
+		
 		delayMS(10);
-		
-		
-		ST7735_printMsg(10, 10, " %d  ", num);
-		if (num != numPrev) //if at a new spot
-		{
+		xV = map(posVal[0] , 0 , 1023,0,160);
+		yV = map(posVal[1], 0, 1023, 0, 128);
+		ST7735_printMsg(40, 10, "( %d , %d ) ", posVal[0] , posVal[1]);
+		if (xV != xPre || yV != yPre) //if at a new spot
+			{                                               
 			
-			ST7735_DrawCircle(numPrev, 50,10, ST7735_BLACK);
-			numPrev = num;
-			ST7735_DrawCircle(num, 50, 10, ST7735_YELLOW);
-		}
+				//ST7735_DrawCircle(xPre, yPre, 10, ST7735_BLACK);
+				drawAnimation(xV, yV);
+				xPre = xV;
+				//ST7735_DrawCircle(xV, yV, 10, ST7735_YELLOW);
+				yPre = yV;
+			}
+		else
+			drawAnimation(xPre, yPre);
+		
 		
 		
 	}
@@ -231,18 +230,14 @@ void tft_gpio_init(void)
 void MX_ADC_Init(void)
 {
 
-	/* USER CODE BEGIN ADC_Init 0 */
 
-	/* USER CODE END ADC_Init 0 */
 
 	LL_ADC_REG_InitTypeDef ADC_REG_InitStruct = { 0 };
 	LL_ADC_InitTypeDef ADC_InitStruct = { 0 };
-
 	LL_GPIO_InitTypeDef GPIO_InitStruct = { 0 };
 
 	/* Peripheral clock enable */
-	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC1);
-  
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC1);  
 	LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOB);
 	/**ADC GPIO Configuration  
 	PB0   ------> ADC_IN8
@@ -258,40 +253,29 @@ void MX_ADC_Init(void)
 	GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
 	LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-	/* ADC DMA Init */
-  
-	/* ADC Init */
+	
 	LL_DMA_SetPeriphRequest(DMA1, LL_DMA_CHANNEL_1, LL_DMA_REQUEST_0);
-
 	LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-
 	LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PRIORITY_LOW);
-
-	LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MODE_NORMAL);
-
+	LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MODE_CIRCULAR);
 	LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PERIPH_NOINCREMENT);
-
 	LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MEMORY_INCREMENT);
-
 	LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PDATAALIGN_HALFWORD);
+	LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_HALFWORD);	
+	LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1, 1);	
+	LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_1 , posVal[0]);	
+	LL_DMA_SetPeriphAddress(DMA1, LL_DMA_CHANNEL_1, (uint32_t)&ADC1->DR);	
 
-	LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_HALFWORD);
+	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
 	
-	LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1, 2);
 	
-	LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_1 , &posVal);
 	
-	LL_DMA_SetPeriphAddress(DMA1, LL_DMA_CHANNEL_1, &ADC1->DR);
-
-	/* USER CODE BEGIN ADC_Init 1 */
-
-	/* USER CODE END ADC_Init 1 */
-	/** Configure Regular Channel 
-	*/
 	LL_ADC_REG_SetSequencerChAdd(ADC1, LL_ADC_CHANNEL_8);
 	/** Configure Regular Channel 
 	*/
-	LL_ADC_REG_SetSequencerChAdd(ADC1, LL_ADC_CHANNEL_9);
+	//LL_ADC_REG_SetSequencerChAdd(ADC1, LL_ADC_CHANNEL_9);
+	
+	
 	/** Common config 
 	*/
 	ADC_REG_InitStruct.TriggerSource = LL_ADC_REG_TRIG_SOFTWARE;
@@ -333,3 +317,84 @@ void MX_DMA_Init(void)
 
 }
 
+void ADC_DMA_ini(void)
+{
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC1);  
+	LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOB);
+	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+	
+	//---do i need irq?
+	NVIC_SetPriority(DMA1_Channel1_IRQn, 0);
+	NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+	
+	/**ADC GPIO Configuration  
+	PB0   ------> ADC_IN8
+	PB1   ------> ADC_IN9 
+	*/
+	LL_GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+
+	GPIO_InitStruct.Pin = LL_GPIO_PIN_0;
+	GPIO_InitStruct.Mode = LL_GPIO_MODE_ANALOG;
+	GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+	LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+	GPIO_InitStruct.Pin = LL_GPIO_PIN_1;
+	GPIO_InitStruct.Mode = LL_GPIO_MODE_ANALOG;
+	GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+	LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	
+	
+	ADC1->CR |= ADC_CR_ADVREGEN; //enable voltage reg on ADC
+	//continous conversion | 10 bit resolution | DMA circular mode | DMA enabled
+	ADC1->CFGR1 |= ADC_CFGR1_CONT | (1<<ADC_CFGR1_RES_Pos) | ADC_CFGR1_DMACFG | ADC_CFGR1_DMAEN ;  //add dma here 
+	//pclk / 2 
+	ADC1->CFGR2 |= (1<<ADC_CFGR2_CKMODE_Pos);
+	
+	//adc channel 8 enable  = PORTb 0
+	ADC1->CHSELR = ADC_CHSELR_CHSEL8 | ADC_CHSELR_CHSEL9;
+	 
+	
+	
+	DMA1_Channel1->CCR |= (1 << DMA_CCR_MSIZE_Pos) | (1 << DMA_CCR_PSIZE_Pos) | DMA_CCR_CIRC | DMA_CCR_MINC;
+	DMA1_Channel1->CNDTR = 2;
+	DMA1_Channel1->CPAR =(uint32_t) &ADC1->DR;
+	DMA1_Channel1->CMAR = (uint32_t) posVal;
+	DMA1_Channel1->CCR |= DMA_CCR_EN;
+	
+	
+	
+	ADC1->ISR |= ADC_ISR_ADRDY; //write 1 to clear READY bit 
+	ADC1->CR |= ADC_CR_ADEN; //Enable ADC when its enabled it will again set the READY bit
+	if ((ADC1->CFGR1 & ADC_CFGR1_AUTOFF) == 0)
+	{
+		while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) /* (3) */
+		{
+			/* For robust implementation, add here time-out management */
+		}
+	}
+	
+}
+void DMA1_Channel1_IRQHandler(void)
+{
+	
+	volatile int x = 0;
+}
+void drawAnimation(uint16_t x, uint16_t y)
+{
+	uint8_t del = 1;
+	for (int i = 10; i >0; i--)
+	{
+		
+		ST7735_DrawCircle(x, y, i, ST7735_WHITE);
+		//delayMS(del);
+    }
+	
+	for (int i = 1; i <11; i++)
+	{
+		
+		ST7735_DrawCircle(x, y, i, ST7735_BLACK);
+		//delayMS(del);
+	}
+	
+		
+}

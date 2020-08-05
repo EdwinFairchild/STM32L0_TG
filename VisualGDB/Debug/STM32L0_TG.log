@@ -1,1 +1,5 @@
-﻿
+﻿  STM32L0_TG.c
+  Linking VisualGDB/Debug/STM32L0_TG...
+  ------------------- Memory utilization report -------------------
+  Used FLASH: 12KB out of 32KB (38%) [-24]
+  Used SRAM: 196 bytes out of 8192 bytes (2%)
